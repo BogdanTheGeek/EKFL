@@ -8,6 +8,7 @@
 showSwitches = true;
 showKeys = true;
 printView = false;
+threadedInserts = true;
 
 // spacing between columns (for split printing)
 spacing = 0.1;
@@ -41,6 +42,9 @@ locatorLength = columnPitch - 6;
 
 mountingFlapWidth = 8;
 mountingHoleDiameter = 3;
+
+threadedInsertDiameter = 4.1;
+threadedInsertLength = 5.7;
 
 
 module switch()
@@ -103,15 +107,38 @@ module switch_plate(convex=0)
       cube([ll, lw, spt]);
 }
 
-
-module mount(l, w, t, d)
+module flange()
 {
-   translate([-l/2, 0, 0])
+   length = columnPitch;
+   width = mountingFlapWidth;
+   height = plateThickness;
+   diameter = mountingHoleDiameter + 0.2;
+   translate([-length/2, 0, 0])
    difference()
    {
-      cube([l, w, t]);
-      translate([l/2, w/2, -1])
-         cylinder(d=d + 0.2, h=t+2, $fn=32);
+      cube([length, width, height]);
+      translate([length/2, width/2, -1])
+         cylinder(d=diameter, h=height+2, $fn=32);
+   }
+}
+
+module pillar(length, width, height, diameter, depth, offset=0)
+{
+   translate([-length/2, 0, 0])
+   difference()
+   {
+      cube([length, width, height]);
+      translate([length/2, width/2 + offset, height-depth])
+      if (threadedInserts)
+      {
+         cylinder(d=diameter + 0.2, h=depth+1, $fn=32);
+         translate([0, 0, depth-threadedInsertLength])
+            cylinder(d=threadedInsertDiameter, h=threadedInsertLength+1, $fn=32);
+      }
+      else
+      {
+         cylinder(d=diameter, h=depth+1, $fn=32);
+      }
    }
 }
 
@@ -188,7 +215,6 @@ module column(keys, radius, keyOffset=2)
    }
 
    // Mounting Flaps
-   w = mountingFlapWidth;
    cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
 
    indexBottom = (-keyOffset - 0.5 - centerOffset); 
@@ -196,13 +222,13 @@ module column(keys, radius, keyOffset=2)
    translate([0, 0, -cornerRadius])
    rotate([-angle * indexBottom, 0, 0])
    mirror([0, 1, 0])
-   mount(cp, w, pt, mountingHoleDiameter);
+   flange();
 
    indexTop = (keys - keyOffset - 0.5 - centerOffset); 
    rotate([angle * indexTop, 0, 0])
    translate([0, 0, -cornerRadius])
    rotate([-angle * indexTop, 0, 0])
-   mount(cp, w, pt, mountingHoleDiameter);
+   flange();
 
 
 }
@@ -262,7 +288,6 @@ module column_support(keys, radius, keyOffset=2, postsHeight=0)
    cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
 
    indexBottom = (-keyOffset - 0.5 - centerOffset); 
-
    heightBottom = radius * (1 - cos(angle * indexBottom)) + postsHeight + 5 - pt;
 
    translate([0, -flapOffset, -heightBottom])
@@ -270,66 +295,17 @@ module column_support(keys, radius, keyOffset=2, postsHeight=0)
    translate([0, 0, -cornerRadius])
    rotate([-angle * indexBottom, 0, 0])
    mirror([0, 1, 0])
-   mount(cp, w, heightBottom, mountingHoleDiameter);
+   pillar(cp, w, heightBottom, mountingHoleDiameter, depth, -flapOffset/2);
 
    indexTop = (keys - keyOffset - 0.5 - centerOffset); 
-
    heightTop = radius * (1 - cos(angle * indexTop)) + postsHeight + 5 - pt;
 
    translate([0, flapOffset, -heightTop])
    rotate([angle * indexTop, 0, 0])
    translate([0, 0, -cornerRadius])
    rotate([-angle * indexTop, 0, 0])
-   mount(cp, w, heightTop, mountingHoleDiameter);
+   pillar(cp, w, heightTop, mountingHoleDiameter, depth, -flapOffset/2);
 }
-
-module base(keys, radius, keyOffset=2, postsHeight=0, top=true, bottom=true)
-{
-   ll = locatorLength;
-   lw = locatorWidth;
-   sp = switchPitch;
-   cp = columnPitch;
-   pt = plateThickness;
-
-   angle = 2*atan(sp/2 / (radius + pt));
-
-   centerOffset =  keys % 2 == 0 ? 0.5 : 0;
-
-   // Mounting posts
-   flapOffset = 1;
-   w = mountingFlapWidth - flapOffset;
-   depth = 10;
-
-   k1 = keys - keyOffset - centerOffset - 1 + 0.5;
-   a1 = angle * k1;
-   h1 = radius * (1 - cos(a1)) + postsHeight + 7.5 - pt;
-
-   k2 = keyOffset + centerOffset + 0.5;
-   a2 = angle * k2;
-   h2 = radius * (1 - cos(a2)) + postsHeight + 7.5 - pt;
-
-   // Plate
-   hull()
-   {
-      if (top)
-      {
-         rotate([a1, 0, 0])
-            translate([0, 0, -radius-pt])
-            rotate([-a1, 0, 0])
-               translate([-cp/2, 1, -h1 - pt/2])
-                  cube([cp, w, pt]);
-      }
-      if (bottom)
-      {
-         rotate([-a2, 0, 0])
-            translate([0, 0, -radius-pt])
-            rotate([180 + a2, 0, 0])
-               translate([-cp/2, 1, h2 - pt/2])
-                  cube([cp, w, pt]);
-      }
-   }
-}
-
 
 module key_cluster()
 {
@@ -373,7 +349,6 @@ module key_cluster()
             }
             postHeight =  baseRadius - (fr[columns[i]] - fh[columns[i]]);
             column_support(rows[i], fingerRadius[columns[i]], rowsOffset[i], postHeight);
-            //base(rows[i], fingerRadius[columns[i]], rowsOffset[i], postHeight);
          }
       }
    }
@@ -393,7 +368,6 @@ module thumb_cluster()
          column(thumbKeys, thumbRadius, thumbKeysOffset);
       }
       column_support(thumbKeys, thumbRadius, thumbKeysOffset, thumbHeight);
-      //base(thumbKeys, thumbRadius, thumbKeysOffset, thumbHeight);
    }
 
    translate([0, 0, thumbRadius + 8 + thumbHeight])
@@ -405,7 +379,6 @@ module thumb_cluster()
             column(thumbKeys, thumbRadius, thumbKeysOffset);
          }
          column_support(thumbKeys, thumbRadius, thumbKeysOffset, thumbHeight);
-         //base(thumbKeys, thumbRadius, thumbKeysOffset, thumbHeight);
       }
    }
 }
