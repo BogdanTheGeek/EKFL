@@ -7,11 +7,11 @@
 
 showSwitches = true;
 showKeys = true;
-printView = false;
+printView = true;
 threadedInserts = true;
 
 // spacing between columns (for split printing)
-spacing = 0.1;
+spacing = 0;
 
 switchHoleWidth = 14;
 switchHoleHeight = 5;
@@ -122,7 +122,7 @@ module flange()
    }
 }
 
-module pillar(length, width, height, diameter, depth, offset=0)
+module pillar(length, width, height, diameter=0, depth=0, offset=0)
 {
    translate([-length/2, 0, 0])
    difference()
@@ -217,14 +217,14 @@ module column(keys, radius, keyOffset=2)
    // Mounting Flaps
    cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
 
-   indexBottom = (-keyOffset - 0.5 - centerOffset); 
+   indexBottom = (-keyOffset - 0.5 - centerOffset);
    rotate([angle * indexBottom, 0, 0])
    translate([0, 0, -cornerRadius])
    rotate([-angle * indexBottom, 0, 0])
    mirror([0, 1, 0])
    flange();
 
-   indexTop = (keys - keyOffset - 0.5 - centerOffset); 
+   indexTop = (keys - keyOffset - 0.5 - centerOffset);
    rotate([angle * indexTop, 0, 0])
    translate([0, 0, -cornerRadius])
    rotate([-angle * indexTop, 0, 0])
@@ -307,7 +307,50 @@ module column_support(keys, radius, keyOffset=2, postsHeight=0)
    pillar(cp, w, heightTop, mountingHoleDiameter, depth, -flapOffset/2);
 }
 
-module key_cluster()
+module base(keys, radius, keyOffset=2, postsHeight=0)
+{
+   ll = locatorLength;
+   lw = locatorWidth;
+   sp = switchPitch;
+   cp = columnPitch;
+   pt = plateThickness;
+
+   angle = 2*atan(sp/2 / (radius + pt));
+
+   centerOffset =  keys % 2 == 0 ? 0.5 : 0;
+   linkClearnace = 0.2;
+
+   // Mounting posts
+   flapOffset = 1;
+   w = mountingFlapWidth - flapOffset;
+   depth = 10;
+
+   cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
+
+   hull()
+   {
+      indexBottom = (-keyOffset - 0.5 - centerOffset); 
+      heightBottom = radius * (1 - cos(angle * indexBottom)) + postsHeight + 5 - pt;
+
+      translate([0, -flapOffset, -heightBottom])
+      rotate([angle * indexBottom, 0, 0])
+      translate([0, 0, -cornerRadius])
+      rotate([-angle * indexBottom, 0, 0])
+      mirror([0, 1, 0])
+      pillar(cp, w, pt);
+
+      indexTop = (keys - keyOffset - 0.5 - centerOffset); 
+      heightTop = radius * (1 - cos(angle * indexTop)) + postsHeight + 5 - pt;
+
+      translate([0, flapOffset, -heightTop])
+      rotate([angle * indexTop, 0, 0])
+      translate([0, 0, -cornerRadius])
+      rotate([-angle * indexTop, 0, 0])
+      pillar(cp, w, pt);
+   }
+}
+
+module key_cluster(printableOnly=false)
 {
    pinky = 0;
    ring = 1;
@@ -317,7 +360,7 @@ module key_cluster()
 
    fingerLength = [ 45, 50, 55, 48, 35 ];
    fingerLenghtOffset = [ 0, 15, 21, 15, -25 ];
-   baseRadius = 22;
+   baseRadius = 23;
    fingerOffsetFactor = 0.8;
    columnOffsetFactor = 0.3;
 
@@ -343,42 +386,37 @@ module key_cluster()
       {
          translate([(i + 0.5) * (columnPitch + spacing), cho[columns[i]], fh[columns[i]]])
          {
-            if (!printView)
+            if (!printableOnly && !printView)
             {
                column(rows[i], fingerRadius[columns[i]], rowsOffset[i]);
             }
             postHeight =  baseRadius - (fr[columns[i]] - fh[columns[i]]);
             column_support(rows[i], fingerRadius[columns[i]], rowsOffset[i], postHeight);
+            base(rows[i], fingerRadius[columns[i]], rowsOffset[i], postHeight);
          }
       }
    }
 }
 
-module thumb_cluster()
+module thumb_cluster(printableOnly=false)
 {
-   thumbRadius = 80;
-   thumbKeys = 3;
-   thumbKeysOffset = 0;
-   thumbHeight = 10;
+   thumbRadi = [ -60, -60 ];
+   thumbKeys = [ 3, 2 ];
+   thumbKeysOffsets = [ 2, 1 ];
+   thumbHeights = [ 25, 20 ];
+   xOffset = [ 0, 0 ];
+   yOffset = [ 0, 0 ];
 
-   translate([0, 0, thumbRadius + 8 + thumbHeight])
+   for (i=[0:len(thumbRadi)-1])
    {
-      if (!printView)
+      translate([-i*columnPitch + xOffset[i], yOffset[i], thumbRadi[i] + 8 + thumbHeights[i]])
       {
-         column(thumbKeys, thumbRadius, thumbKeysOffset);
-      }
-      column_support(thumbKeys, thumbRadius, thumbKeysOffset, thumbHeight);
-   }
-
-   translate([0, 0, thumbRadius + 8 + thumbHeight])
-   {
-      translate([columnPitch + spacing, 0, 0])
-      {
-         if (!printView)
+         if (!printableOnly && !printView)
          {
-            column(thumbKeys, thumbRadius, thumbKeysOffset);
+            column(thumbKeys[i], thumbRadi[i], thumbKeysOffsets[i]);
          }
-         column_support(thumbKeys, thumbRadius, thumbKeysOffset, thumbHeight);
+         column_support(thumbKeys[i], thumbRadi[i], thumbKeysOffsets[i], thumbHeights[i]);
+         base(thumbKeys[i], thumbRadi[i], thumbKeysOffsets[i], thumbHeights[i]);
       }
    }
 }
@@ -392,17 +430,9 @@ module thumb_cluster()
 
 elbowAngle = 10;
 thumbAngle = 70;
-thubOffset = [125, -95, 0];
+thubOffset = [105, -60, 0];
 
-translate([-170, 0, 0])
-rotate([0, 0, -elbowAngle])
-{
-key_cluster();
-translate(thubOffset)
-   rotate([0, 0, thumbAngle])
-      thumb_cluster();
-}
-mirror([1, 0, 0])
+// Left hand
 translate([-170, 0, 0])
 rotate([0, 0, -elbowAngle])
 {
@@ -412,7 +442,19 @@ translate(thubOffset)
       thumb_cluster();
 }
 
-translate([2*(columnPitch + spacing), -switchPitch*2, 0])
+// Right hand
+*mirror([1, 0, 0])
+translate([-170, 0, 0])
+rotate([0, 0, -elbowAngle])
+{
+key_cluster();
+translate(thubOffset)
+   rotate([0, 0, thumbAngle])
+      thumb_cluster();
+}
+
+// Column plates
+*translate([2*(columnPitch + spacing), -switchPitch*2, 0])
 {
 translate([-(columnPitch + spacing), 0, 0])
    column_plate(5);
@@ -438,4 +480,3 @@ translate([-3*(columnPitch + spacing), 0, 0])
 }
 
 // TODO: fix bottom not quite flat
-// TODO: fix convex support height
