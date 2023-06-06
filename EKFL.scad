@@ -221,8 +221,8 @@ module column(keys, radius, keyOffset=2)
             if (showKeys)
                translate([0, 0, 5])
                   color("white", 1)
-                     import("DSA 1u LR.stl", convexity=3);
-                     //import("XDA 1u LR.stl", convexity=3);
+                     import("assets/DSA 1u LR.stl", convexity=3);
+                     //import("assets/XDA 1u LR.stl", convexity=3);
          }
    }
 
