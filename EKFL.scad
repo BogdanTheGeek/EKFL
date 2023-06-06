@@ -227,7 +227,7 @@ module column(keys, radius, keyOffset=2)
    }
 
    // Mounting Flaps
-   cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
+   cornerRadius = sqrt((radius + pt)^2 + (sp/2)^2) * (radius < 0 ? -1 : 1);
 
    indexBottom = (-keyOffset - 0.5 - centerOffset);
    rotate([angle * indexBottom, 0, 0])
@@ -265,12 +265,14 @@ module column_support(keys, radius, keyOffset=2, postsHeight=0)
 
    linkClearnace = 0.2;
 
+   cornerRadius = sqrt((radius + pt)^2 + (sp/2)^2) * (radius < 0 ? -1 : 1);
+
    if (posts)
    {
       for (i=[0:posts-1])
       {
          k = ((keys / 2) - keyOffset - 1) + i - (keys == 6 ? 1 : 0);
-         l = radius * (1 - cos(angle * k)) + postsHeight - 3 - linkClearnace;
+         l = cornerRadius * (1 - cos(angle * k)) + postsHeight - 3 - linkClearnace;
 
          rotate([angle * k, 0, 0])
             translate([0, 0, -(radius + 3 + (concave*pt) + linkClearnace)])
@@ -297,10 +299,8 @@ module column_support(keys, radius, keyOffset=2, postsHeight=0)
    w = mountingFlapWidth - flapOffset;
    depth = 10;
 
-   cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
-
    indexBottom = (-keyOffset - 0.5 - centerOffset); 
-   heightBottom = radius * (1 - cos(angle * indexBottom)) + postsHeight + 5 - pt;
+   heightBottom = cornerRadius * (1 - cos(angle * indexBottom)) + postsHeight + 5 - pt;
 
    translate([0, -flapOffset, -heightBottom])
    rotate([angle * indexBottom, 0, 0])
@@ -310,7 +310,7 @@ module column_support(keys, radius, keyOffset=2, postsHeight=0)
    pillar(cp, w, heightBottom, mountingHoleDiameter, depth, -flapOffset/2);
 
    indexTop = (keys - keyOffset - 0.5 - centerOffset); 
-   heightTop = radius * (1 - cos(angle * indexTop)) + postsHeight + 5 - pt;
+   heightTop = cornerRadius * (1 - cos(angle * indexTop)) + postsHeight + 5 - pt;
 
    translate([0, flapOffset, -heightTop])
    rotate([angle * indexTop, 0, 0])
@@ -337,12 +337,12 @@ module base(keys, radius, keyOffset=2, postsHeight=0)
    w = mountingFlapWidth - flapOffset;
    depth = 10;
 
-   cornerRadius = sqrt((radius + pt)*(radius + pt) + (sp/2)*(sp/2)) * (radius < 0 ? -1 : 1);
+   cornerRadius = sqrt((radius + pt)^2 + (sp/2)^2) * (radius < 0 ? -1 : 1);
 
    hull()
    {
       indexBottom = (-keyOffset - 0.5 - centerOffset); 
-      heightBottom = radius * (1 - cos(angle * indexBottom)) + postsHeight + 5 - pt;
+      heightBottom = cornerRadius * (1 - cos(angle * indexBottom)) + postsHeight + 5 - pt;
 
       translate([0, -flapOffset, -heightBottom])
       rotate([angle * indexBottom, 0, 0])
@@ -352,7 +352,7 @@ module base(keys, radius, keyOffset=2, postsHeight=0)
       pillar(cp, w, pt);
 
       indexTop = (keys - keyOffset - 0.5 - centerOffset); 
-      heightTop = radius * (1 - cos(angle * indexTop)) + postsHeight + 5 - pt;
+      heightTop = cornerRadius * (1 - cos(angle * indexTop)) + postsHeight + 5 - pt;
 
       translate([0, flapOffset, -heightTop])
       rotate([angle * indexTop, 0, 0])
@@ -421,7 +421,7 @@ module thumb_cluster(printableOnly=false)
 
    for (i=[0:len(thumbRadi)-1])
    {
-      translate([-i*columnPitch + xOffset[i], yOffset[i], thumbRadi[i] + 8 + thumbHeights[i]])
+      translate([-i*columnPitch + xOffset[i], yOffset[i], thumbRadi[i] + 6.7 + thumbHeights[i]])
       {
          if (!printableOnly && !printView)
          {
@@ -466,29 +466,31 @@ translate(thubOffset)
 }
 
 // Column plates
-*translate([2*(columnPitch + spacing), -switchPitch*2, 0])
+*translate([2*(columnPitch + 1), -switchPitch*2, 0])
 {
-translate([-(columnPitch + spacing), 0, 0])
+translate([-(columnPitch + 1), 0, 0])
    column_plate(5);
-translate([-2*(columnPitch + spacing), 0, 0])
+translate([-2*(columnPitch + 1), 0, 0])
    column_plate(4);
-translate([-3*(columnPitch + spacing), 0, 0])
+translate([-3*(columnPitch + 1), 0, 0])
    column_plate(3);
 }
 
 // Testing column
 *translate([0, 0, 0])
 {
-   keys = 4;
+   keys = 5;
    radius = 80;
-   keyOffset = 0;
+   keyOffset = 0.5;
    postsHeight = 10;
 
    translate([0, 0, radius + 6 + postsHeight])
    {
    column(keys, radius, keyOffset);
    column_support(keys, radius, keyOffset, postsHeight);
+   base(keys, radius, keyOffset, postsHeight);
    }
 }
 
-// TODO: fix base not quite flat
+// TODO: Add microcontroller holder and port
+// TODO: Add side covers
