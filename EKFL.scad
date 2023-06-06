@@ -1,16 +1,28 @@
-/*
- *  EKFL keyboard
- *  Copyright Bogdan Ionescu 2023
- *  LICENCE under GNU GPL v3
- */
+// EKFL keyboard
+
+// Copyright (C) 2023 Bogdan Ionescu
+// SPDX-License-Identifier: GPL-3.0-or-later
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 
 showSwitches = true;
 showKeys = true;
-printView = true;
+printView = false; // Set to true to quicky show only printable parts
 threadedInserts = true;
 
-// spacing between columns (for split printing)
+// Spacing between columns (for split printing)
 spacing = 0;
 
 switchHoleWidth = 14;
@@ -443,7 +455,7 @@ translate(thubOffset)
 }
 
 // Right hand
-*mirror([1, 0, 0])
+mirror([1, 0, 0])
 translate([-170, 0, 0])
 rotate([0, 0, -elbowAngle])
 {
@@ -464,7 +476,7 @@ translate([-3*(columnPitch + spacing), 0, 0])
    column_plate(3);
 }
 
-// testing column
+// Testing column
 *translate([0, 0, 0])
 {
    keys = 4;
@@ -479,4 +491,4 @@ translate([-3*(columnPitch + spacing), 0, 0])
    }
 }
 
-// TODO: fix bottom not quite flat
+// TODO: fix base not quite flat
