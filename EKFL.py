@@ -61,7 +61,12 @@ class Switch:
     actuatorLength = 5.5
     actuatorHeight = 10.5
 
+    body = None  # Cache
+
     def create(self) -> bd.Part:
+        if Switch.body:
+            return Switch.body
+
         # Base
         body = bd.Box(
             self.width,
@@ -103,11 +108,8 @@ class Switch:
         )
         body += bd.loft((top, bottom))
 
-        return (body, bd.Pos(0, 0, self.stemHeight - 3) * cap.body)
-
-
-class SwitchAssembly:
-    bodies = Switch().create()
+        Switch.body = (body, bd.Pos(0, 0, self.stemHeight - 3) * cap.body)
+        return Switch.body
 
 
 class Plate:
@@ -125,12 +127,15 @@ class Plate:
     locatorHeight = thickness
     locatorLength = columnPitch - 6.0
 
+    body = None  # Cache
+
     def __init__(self, convex=0):
         self.convex = convex
         self.locatorWidth = nozzleDiameter * 3 + (convex * 0.5)
 
     def create(self) -> bd.Part:
-        # Plate
+        if Plate.body:
+            return Plate.body
 
         cut_width = (self.thickness - layerHeight) / 2
         profile = (
@@ -181,6 +186,7 @@ class Plate:
             POS_REF_LEN, POS_REF_LEN
         )
 
+        Plate.body = body
         return body
 
 
@@ -191,7 +197,12 @@ class Flange:
     diameter = 3
     clearance = 0.2
 
+    body = None  # Cache
+
     def create(self) -> bd.Part:
+        if Flange.body:
+            return Flange.body
+
         cut_width = (self.height - layerHeight) / 2
         profile = (
             (-self.width / 2, 0),  # Bottom Left
@@ -212,10 +223,11 @@ class Flange:
             self.height * 2,
         )
 
+        Flange.body = body
         return body
 
 
-class Column:
+class Board:
     def __init__(self, keys: int, radius=0, offset=2):
         self.keys = keys
         self.radius = radius
@@ -236,36 +248,40 @@ class Column:
     def create(self) -> Tuple[bd.Part, ...]:
         centerOffset = 0.5 if self.keys % 2 == 0 else 0
 
-        body = bd.Part()
+        if self.radius == 0:
+            # Flat
+            def move(i: int, b: bd.Part) -> bd.Part:
+                return bd.Pos(0, i * Plate.switchPitch, 0) * b
 
-        switches = []
+            plates = tuple((move(i, Plate().create()) for i in range(self.keys)))
+            switches = (
+                move(i, b) for b in tuple(Switch().create()) for i in range(self.keys)
+            )
+        else:
+            # Curved
+            def move(i: int, b: bd.Part) -> bd.Part:
+                return (
+                    bd.Rot(
+                        self.angle * (i - self.offset - centerOffset),
+                        0,
+                        0,
+                    )
+                    * bd.Pos(0, 0, -self.radius)
+                    * b
+                )
 
-        for i in range(self.keys):
-            if self.radius == 0:
-                # Flat
-                pos = bd.Pos(0, i * Plate.switchPitch, 0)
-                body += pos * Plate().create()
-                for b in SwitchAssembly.bodies:
-                    switches.append(pos * bd.copy.copy(b))
-            else:
-                transformation = bd.Rot(
-                    self.angle * (i - self.offset - centerOffset),
-                    0,
-                    0,
-                ) * bd.Pos(0, 0, -self.radius)
-                plate = transformation * Plate().create()
-                body += plate
-                for b in SwitchAssembly.bodies:
-                    switches.append(transformation * bd.copy.copy(b))
+            plates = tuple((move(i, Plate().create()) for i in range(self.keys)))
+            switches = (
+                move(i, b) for b in tuple(Switch().create()) for i in range(self.keys)
+            )
+
         # Flanges
         if self.radius == 0:
-            body += (
+            flanges = (
                 bd.Pos(0, -(Flange.width + Plate.switchPitch) / 2.0, 0)
-                * Flange().create()
-            )
-            body += (
+                * Flange().create(),
                 bd.Pos(0, (self.keys - 0.5) * Plate.switchPitch + Flange.width / 2.0, 0)
-                * Flange().create()
+                * Flange().create(),
             )
         else:
             cornerRadius = sqrt(
@@ -275,70 +291,72 @@ class Column:
                 cornerRadius = -cornerRadius
 
             leftIndex = -self.offset - centerOffset - 0.5
-            body += (
+            rightIndex = self.keys - self.offset - centerOffset - 0.5
+            flanges = (
                 bd.Rot(self.angle * leftIndex, 0, 0)
                 * bd.Pos(0, 0, -cornerRadius)
                 * bd.Rot(-self.angle * leftIndex, 0, 0)
                 * bd.Pos(0, -Flange.width / 2, Flange.height)
-                * Flange().create()
-            )
-            rightIndex = self.keys - self.offset - centerOffset - 0.5
-            body += (
+                * Flange().create(),  # Left
                 bd.Rot(self.angle * rightIndex, 0, 0)
                 * bd.Pos(0, 0, -cornerRadius)
                 * bd.Rot(-self.angle * rightIndex, 0, 0)
                 * bd.Pos(0, Flange.width / 2, Flange.height)
-                * Flange().create()
+                * Flange().create(),  # Right
             )
 
-        return (body, *switches)
+        board = bd.Part() + plates + flanges
+        return (board, *switches)
 
 
 class Support:
-    column_width = Flange.width
-    column_depth = Flange.length
+    columnWidth = Flange.width
+    columnDepth = Flange.length
 
-    contact_width = 1
-    contact_height = 3
+    contactWidth = 1
+    contactHeight = 3
 
     width = 3.6
+    depth = columnDepth - 4
 
     # TODO: Look into algorithm for calculating the number of supports
     postsForKeys = (0, 0, 1, 2, 1, 2, 3, 4)
 
-    def __init__(self, plates: bd.Part, col: Column):
+    def __init__(self, plates: bd.Part, board: Board):
         self.plate = plates
-        self.col = col
+        self.board = board
 
-        screw_holes = (
+        screwHoles = (
             plates.edges()
             .filter_by(bd.GeomType.CIRCLE)
             .filter_by(lambda e: e.radius > POS_REF_LEN)  # Filter out references
             .sort_by(bd.Axis.Y)[0::2]
             .sort_by(bd.Axis.Z)
         )
-        self.col_pos: Tuple[bd.Vector, ...] = tuple(
-            (hole.position for hole in screw_holes)
+        self.colPos: Tuple[bd.Vector, ...] = tuple(
+            (hole.position for hole in screwHoles)
         )
 
-        ref_edges = (
+        refEdges = (
             plates.edges()
             .filter_by(bd.GeomType.LINE)
             .filter_by(lambda e: e.length <= POS_REF_LEN)
             .sort_by(bd.Axis.Y)[0:-1]
         )
 
-        supports = self.postsForKeys[col.keys]
-        diff = (len(ref_edges) - supports) // 2
-        if diff > 0:
-            ref_edges = ref_edges[diff:-diff]
+        print(f"Creating supports for {board.keys} keys")
 
-        if supports != len(ref_edges):
+        supports = self.postsForKeys[board.keys]
+        diff = (len(refEdges) - supports) // 2
+        if diff > 0:
+            refEdges = refEdges[diff:-diff]
+
+        if supports != len(refEdges):
             raise ValueError(
-                f"Number of supports({supports}) != number of references({len(ref_edges)})"
+                f"Number of supports({supports}) != number of references({len(refEdges)})"
             )
 
-        self.ref_pos = tuple((ref @ 0 for ref in ref_edges))
+        self.refPos = tuple((ref @ 0 for ref in refEdges))
 
         def get_angle_ZY(edge: bd.Edge) -> float:
             """
@@ -351,34 +369,34 @@ class Support:
             y = end.Y - start.Y
             return -atan(y / z) * (180 / pi)
 
-        self.ref_angles = tuple(
-            (get_angle_ZY(edge) + col.angle / 2 for edge in ref_edges)
+        self.refAngles = tuple(
+            (get_angle_ZY(edge) + board.angle / 2 for edge in refEdges)
         )
 
-        if len(self.ref_angles) != len(self.ref_pos):
+        if len(self.refAngles) != len(self.refPos):
             raise ValueError(
-                f"angles({len(self.ref_angles)}) != positions({len(self.ref_pos)})"
+                f"angles({len(self.refAngles)}) != positions({len(self.refPos)})"
             )
 
-        z_pos = tuple((*(c.Z for c in self.col_pos), *(r.Z for r in self.ref_pos)))
-        bottom = min(z_pos)
+        zPos = tuple((*(c.Z for c in self.colPos), *(r.Z for r in self.refPos)))
+        bottom = min(zPos)
         self.bottom = bottom
 
-        self.col_h: Tuple[float, ...] = (
-            10 + self.col_pos[0].Z - bottom,
-            10 + self.col_pos[1].Z - bottom,
+        self.colHeight: Tuple[float, ...] = (
+            10 + self.colPos[0].Z - bottom,
+            10 + self.colPos[1].Z - bottom,
         )
 
     def create(self) -> bd.Part:
         body = bd.Part()
         # columns
-        for i in range(len(self.col_pos)):
-            pos = self.col_pos[i]
-            height = self.col_h[i]
+        for i in range(len(self.colPos)):
+            pos = self.colPos[i]
+            height = self.colHeight[i]
             body += bd.Pos(pos) * (
                 bd.Box(
-                    self.column_depth,
-                    self.column_width,
+                    self.columnDepth,
+                    self.columnWidth,
                     height,
                     align=TOP_REF,
                 )
@@ -389,28 +407,27 @@ class Support:
                 )
             )
         # supports
-        for i in range(len(self.ref_pos)):
-            pos = self.ref_pos[i]
-            angle = self.ref_angles[i]
+        for i in range(len(self.refPos)):
+            pos = self.refPos[i]
+            angle = self.refAngles[i]
             contact = (
                 bd.Pos(pos)
                 * bd.Rot(angle)
                 * bd.Box(
-                    self.column_depth,
-                    self.contact_width,
-                    self.contact_height + self.contact_width,
+                    self.depth,
+                    self.contactWidth,
+                    self.contactHeight + self.contactWidth,
                     align=TOP_REF,
                 )
             )
-            angle_rad = angle * pi / 180
-            contact_end = (
-                pos
-                + bd.Vector(0, -sin(angle_rad), cos(angle_rad)) * -self.contact_height
+            angleRad = angle * pi / 180
+            contactEnd = (
+                pos + bd.Vector(0, -sin(angleRad), cos(angleRad)) * -self.contactHeight
             )
-            support = bd.Pos(contact_end) * bd.Box(
-                self.column_depth,
+            support = bd.Pos(contactEnd) * bd.Box(
+                self.depth,
                 self.width,
-                10 + contact_end.Z - self.bottom,
+                10 + contactEnd.Z - self.bottom,
                 align=TOP_REF,
             )
             support += contact
@@ -434,22 +451,81 @@ class Support:
             body += support
 
         # bottom plate
-        base_length = abs(self.col_pos[0].Y - self.col_pos[1].Y) + Flange.width
-        y_ref = min((p.Y for p in self.col_pos)) - Flange.width / 2
+        baseLength = abs(self.colPos[0].Y - self.colPos[1].Y) + Flange.width
+        yRef = min((p.Y for p in self.colPos)) - Flange.width / 2
         REF = (bd.Align.CENTER, bd.Align.MIN, bd.Align.MAX)
-        body += bd.Pos(0, y_ref, self.bottom - 10) * bd.Box(
-            self.column_depth, base_length, 1, align=REF
+        body += bd.Pos(0, yRef, self.bottom - 10) * bd.Box(
+            self.columnDepth, baseLength, 1, align=REF
         )
 
         return body
 
 
-# plate = Plate().create()
-# flange = Flange().create()
-# column = Column(5, -50).create()
-col = Column(6, 80, 2)
-plate_col, *switches = col.create()
-support = Support(plate_col, col).create()
+class Keypad:
+    def __init__(self):
+        pinky = 0
+        ring = 1
+        middle = 2
+        index = 3
+
+        fingerLength = (45, 50, 55, 48, 35)
+        fingerLenghtOffset = (0, 15, 21, 15, -25)
+        baseRadius = 23
+        columnOffsetFactor = 0.3
+
+        self.fingerRadius = tuple(
+            (baseRadius + fingerLength[i] + fingerLenghtOffset[i] for i in range(5))
+        )
+
+        self.columnOffset = tuple(
+            (self.fingerRadius[i] * columnOffsetFactor for i in range(5))
+        )
+
+        self.columns = (pinky, pinky, ring, middle, index, index)
+        self.keys = (4, 4, 5, 5, 4, 4)
+        self.keysOffset = (1, 1, 2.5, 2.5, 1, 1)
+
+        assert len(self.columns) == len(self.keys) == len(self.keysOffset)
+
+    def create(self) -> Tuple[bd.Part, ...]:
+        columns = []
+        for i in range(len(self.columns)):
+            keys = self.keys[i]
+            keysOffset = self.keysOffset[i]
+            finger = self.columns[i]
+            radius = self.fingerRadius[finger]
+
+            brd = Board(keys, radius, keysOffset)
+            board, *switches = brd.create()
+            support = Support(board, brd).create()
+
+            bottom = min((p.Z for p in support.vertices()))
+            columnOffset = self.columnOffset[finger]
+
+            pos = (i * (Plate.columnPitch + spacing), columnOffset, -bottom)
+
+            column = [
+                (bd.Pos(pos) * support),
+                (bd.Pos(pos) * board),
+                tuple((bd.Pos(pos) * s for s in switches)),
+            ]
+
+            columns.append(column)
+
+        return columns
+
+
+class Module:
+    keypad = Keypad().create()
+
+
+print("Unpacking keypad")
+
+supports = tuple((column[0] for column in Module.keypad))
+columns = tuple((column[1] for column in Module.keypad))
+switches = tuple((column[2] for column in Module.keypad))
+
+print("Done")
 
 
 # view.set_defaults(measure_tools=True)
