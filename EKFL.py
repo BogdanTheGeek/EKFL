@@ -24,16 +24,14 @@ from math import atan, pi, sqrt, cos, sin
 
 from typing import Tuple
 
-showSwitches = True
-showKeys = True
-printView = False  # Set to true to quicky show only printable parts
-threadedInserts = True
-
 # Spacing between columns (for split printing)
 spacing = 0
 
 nozzleDiameter = 0.4
 layerHeight = 0.2
+
+threadedInsertDiameter = 4.1
+threadedInsertLength = 5.7
 
 TOP_REF = (bd.Align.CENTER, bd.Align.CENTER, bd.Align.MAX)
 BOTTOM_REF = (bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN)
@@ -377,8 +375,18 @@ class Support:
         for i in range(len(self.col_pos)):
             pos = self.col_pos[i]
             height = self.col_h[i]
-            body += bd.Pos(pos) * bd.Box(
-                self.column_depth, self.column_width, height, align=TOP_REF
+            body += bd.Pos(pos) * (
+                bd.Box(
+                    self.column_depth,
+                    self.column_width,
+                    height,
+                    align=TOP_REF,
+                )
+                - bd.Cylinder(
+                    threadedInsertDiameter / 2,
+                    threadedInsertLength,
+                    align=TOP_REF,
+                )
             )
         # supports
         for i in range(len(self.ref_pos)):
@@ -435,9 +443,6 @@ class Support:
 
         return body
 
-
-threadedInsertDiameter = 4.1
-threadedInsertLength = 5.7
 
 # plate = Plate().create()
 # flange = Flange().create()
