@@ -20,7 +20,7 @@
 
 import build123d as bd
 import ocp_vscode as view
-from math import atan, pi, sqrt
+from math import atan, pi, sqrt, cos, sin
 
 from typing import Tuple
 
@@ -37,6 +37,8 @@ layerHeight = 0.2
 
 TOP_REF = (bd.Align.CENTER, bd.Align.CENTER, bd.Align.MAX)
 BOTTOM_REF = (bd.Align.CENTER, bd.Align.CENTER, bd.Align.MIN)
+
+POS_REF_LEN = 0.05
 
 
 class CapSTL:
@@ -176,8 +178,10 @@ class Plate:
                 align=TOP_REF,
             )
 
-        # Reference edge
-        body += bd.Pos(0, self.switchPitch / 2, -self.thickness - 0.5) * bd.Sphere(0.05)
+        # Reference
+        body += bd.Pos(0, self.switchPitch / 2, -self.thickness - 0.5) * bd.Cylinder(
+            POS_REF_LEN, POS_REF_LEN
+        )
 
         return body
 
@@ -293,16 +297,25 @@ class Column:
 
 
 class Support:
-    width = Flange.width
-    length = Flange.length
+    column_width = Flange.width
+    column_depth = Flange.length
 
-    def __init__(self, plate: bd.Part):
-        self.plate = plate
+    contact_width = 1
+    contact_height = 3
+
+    width = 3.6
+
+    # TODO: Look into algorithm for calculating the number of supports
+    postsForKeys = (0, 0, 1, 2, 1, 2, 3, 4)
+
+    def __init__(self, plates: bd.Part, col: Column):
+        self.plate = plates
+        self.col = col
 
         screw_holes = (
-            plate.edges()
+            plates.edges()
             .filter_by(bd.GeomType.CIRCLE)
-            .filter_by(lambda e: e.radius > 0.5)  # Filter out reference spheres
+            .filter_by(lambda e: e.radius > POS_REF_LEN)  # Filter out references
             .sort_by(bd.Axis.Y)[0::2]
             .sort_by(bd.Axis.Z)
         )
@@ -310,13 +323,44 @@ class Support:
             (hole.position for hole in screw_holes)
         )
 
-        refs = (
-            plate.edges()
-            .filter_by(bd.GeomType.CIRCLE)
-            .filter_by(lambda e: e.radius < 0.5)  # Filter for reference spheres
-            .sort_by(bd.Axis.Y)[:-1]
+        ref_edges = (
+            plates.edges()
+            .filter_by(bd.GeomType.LINE)
+            .filter_by(lambda e: e.length <= POS_REF_LEN)
+            .sort_by(bd.Axis.Y)[0:-1]
         )
-        self.ref_pos: Tuple[bd.Vector, ...] = tuple((ref.position for ref in refs))
+
+        supports = self.postsForKeys[col.keys]
+        diff = (len(ref_edges) - supports) // 2
+        if diff > 0:
+            ref_edges = ref_edges[diff:-diff]
+
+        if supports != len(ref_edges):
+            raise ValueError(
+                f"Number of supports({supports}) != number of references({len(ref_edges)})"
+            )
+
+        self.ref_pos = tuple((ref @ 0 for ref in ref_edges))
+
+        def get_angle_ZY(edge: bd.Edge) -> float:
+            """
+            Calculate the angle between the Z and Y axis of an edge
+            Returns the angle in degrees
+            """
+            start = edge @ 0
+            end = edge @ 1
+            z = end.Z - start.Z
+            y = end.Y - start.Y
+            return -atan(y / z) * (180 / pi)
+
+        self.ref_angles = tuple(
+            (get_angle_ZY(edge) + col.angle / 2 for edge in ref_edges)
+        )
+
+        if len(self.ref_angles) != len(self.ref_pos):
+            raise ValueError(
+                f"angles({len(self.ref_angles)}) != positions({len(self.ref_pos)})"
+            )
 
         z_pos = tuple((*(c.Z for c in self.col_pos), *(r.Z for r in self.ref_pos)))
         bottom = min(z_pos)
@@ -326,7 +370,6 @@ class Support:
             10 + self.col_pos[0].Z - bottom,
             10 + self.col_pos[1].Z - bottom,
         )
-        self.ref_h: Tuple[float, ...] = tuple((10 + r.Z - bottom for r in self.ref_pos))
 
     def create(self) -> bd.Part:
         body = bd.Part()
@@ -334,20 +377,60 @@ class Support:
         for i in range(len(self.col_pos)):
             pos = self.col_pos[i]
             height = self.col_h[i]
-            body += bd.Pos(pos) * bd.Box(self.length, self.width, height, align=TOP_REF)
+            body += bd.Pos(pos) * bd.Box(
+                self.column_depth, self.column_width, height, align=TOP_REF
+            )
         # supports
         for i in range(len(self.ref_pos)):
             pos = self.ref_pos[i]
-            height = self.ref_h[i]
-            body += bd.Pos(pos) * bd.Box(self.length, 1, height, align=TOP_REF)
-        # TODO: angle supports and add base
+            angle = self.ref_angles[i]
+            contact = (
+                bd.Pos(pos)
+                * bd.Rot(angle)
+                * bd.Box(
+                    self.column_depth,
+                    self.contact_width,
+                    self.contact_height + self.contact_width,
+                    align=TOP_REF,
+                )
+            )
+            angle_rad = angle * pi / 180
+            contact_end = (
+                pos
+                + bd.Vector(0, -sin(angle_rad), cos(angle_rad)) * -self.contact_height
+            )
+            support = bd.Pos(contact_end) * bd.Box(
+                self.column_depth,
+                self.width,
+                10 + contact_end.Z - self.bottom,
+                align=TOP_REF,
+            )
+            support += contact
+
+            def fequal(a, b, tol=1e-6):
+                return abs(a - b) < tol
+
+            # Chamfers
+            edges = (
+                support.edges()
+                .filter_by(bd.GeomType.LINE)
+                .filter_by(bd.Axis.X)
+                .sort_by(bd.Axis.Z)[2:-2]
+                .sort_by(bd.Axis.Y)[1:-1]
+            )
+            for edge in edges:
+                try:
+                    support += bd.chamfer(edge, 1.0)
+                except Exception as e:
+                    print(f"Failed to chamfer: {e}")
+            body += support
 
         # bottom plate
-        width = abs(self.col_pos[0].Y - self.col_pos[1].Y) + Flange.width
-        y_ref = self.col_pos[0].Y - Flange.width / 2
+        base_length = abs(self.col_pos[0].Y - self.col_pos[1].Y) + Flange.width
+        y_ref = min((p.Y for p in self.col_pos)) - Flange.width / 2
         REF = (bd.Align.CENTER, bd.Align.MIN, bd.Align.MAX)
         body += bd.Pos(0, y_ref, self.bottom - 10) * bd.Box(
-            self.length, width, 1, align=REF
+            self.column_depth, base_length, 1, align=REF
         )
 
         return body
@@ -359,8 +442,9 @@ threadedInsertLength = 5.7
 # plate = Plate().create()
 # flange = Flange().create()
 # column = Column(5, -50).create()
-plate, *switches = Column(5, 80, 0).create()
-support = Support(plate).create()
+col = Column(6, 80, 2)
+plate_col, *switches = col.create()
+support = Support(plate_col, col).create()
 
 
 # view.set_defaults(measure_tools=True)
